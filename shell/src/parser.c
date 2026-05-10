@@ -53,6 +53,6 @@ void free_command(Command *cmd) {
         free(cmd->argv[i]);
     }
     
-    // Free the struct itself
+    // Free the struct 
     free(cmd);
 }
