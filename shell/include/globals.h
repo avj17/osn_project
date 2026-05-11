@@ -5,7 +5,9 @@
 #define PATH_MAX 4096
 #endif
 
+
 //This tells the compiler "this variable exists somewhere else in the .c files"
 extern char home_dir[PATH_MAX];
+extern char prev_dir[PATH_MAX]; // <--- Add this line!
 
 #endif

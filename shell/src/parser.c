@@ -3,56 +3,88 @@
 #include <string.h>
 #include "parser.h"
 
-Command* parse_input(char *raw_input) {
-    // If input is empty, do nothing
-    if (raw_input == NULL || strlen(raw_input) == 0) {
-        return NULL;
-    }
+Pipeline* parse_input(char *raw_input) {
+    if (raw_input == NULL || strlen(raw_input) == 0) return NULL;
 
-    // Allocate memory for our new command struct
-    Command *cmd = malloc(sizeof(Command));
-    cmd->argc = 0;
-    cmd->input_file = NULL;
-    cmd->output_file = NULL;
-    cmd->append_output = false;
-    cmd->background = false;
+    Pipeline *pipeline = malloc(sizeof(Pipeline));
+    pipeline->num_commands = 1;
+    pipeline->background = false;
 
-    // We need to chop the raw_input string based on spaces, tabs, and newlines
+    // Point to the first command in our array
+    Command *curr_cmd = &pipeline->commands[0];
+    curr_cmd->argc = 0;
+    curr_cmd->input_file = NULL;
+    curr_cmd->output_file = NULL;
+    curr_cmd->append_output = false;
+
     const char delimiters[] = " \t\r\n\a";
-    
-    // strtok is the standard C function for splitting strings
     char *token = strtok(raw_input, delimiters);
 
     while (token != NULL) {
-        // For now, let's just assume everything is an argument
-        // We will add the logic for <, >, &, and | later
-        cmd->argv[cmd->argc] = strdup(token); // Copy the string safely
-        cmd->argc++;
+        if (strcmp(token, "|") == 0) {
+            // Cap off the current command
+            curr_cmd->argv[curr_cmd->argc] = NULL; 
+            
+            // Move to the next command in the array
+            pipeline->num_commands++;
+            curr_cmd = &pipeline->commands[pipeline->num_commands - 1];
+            
+            // Initialize the new command
+            curr_cmd->argc = 0;
+            curr_cmd->input_file = NULL;
+            curr_cmd->output_file = NULL;
+            curr_cmd->append_output = false;
+        } 
+        else if (strcmp(token, "<") == 0) {
+            token = strtok(NULL, delimiters);
+            if (token != NULL) curr_cmd->input_file = strdup(token);
+        } 
+        else if (strcmp(token, ">") == 0) {
+            token = strtok(NULL, delimiters);
+            if (token != NULL) {
+                curr_cmd->output_file = strdup(token);
+                curr_cmd->append_output = false;
+            }
+        } 
+        else if (strcmp(token, ">>") == 0) {
+            token = strtok(NULL, delimiters);
+            if (token != NULL) {
+                curr_cmd->output_file = strdup(token);
+                curr_cmd->append_output = true;
+            }
+        } 
+        
 
-        // Get the next piece of the string
+        
+        else {
+            curr_cmd->argv[curr_cmd->argc] = strdup(token);
+            curr_cmd->argc++;
+        }
         token = strtok(NULL, delimiters);
     }
 
-    // execvp requires the argument array to be NULL-terminated!
-    cmd->argv[cmd->argc] = NULL;
+    // Cap off the very last command in the pipeline
+    curr_cmd->argv[curr_cmd->argc] = NULL;
 
-    // If they just pressed Enter without typing a command, free and return NULL
-    if (cmd->argc == 0) {
-        free(cmd);
+    if (pipeline->commands[0].argc == 0) {
+        free_pipeline(pipeline);
         return NULL;
     }
 
-    return cmd;
+    return pipeline;
 }
 
-void free_command(Command *cmd) {
-    if (cmd == NULL) return;
+void free_pipeline(Pipeline *pipeline) {
+    if (pipeline == NULL) return;
     
-    // Free all the copied argument strings
-    for (int i = 0; i < cmd->argc; i++) {
-        free(cmd->argv[i]);
+    // Loop through every command and free its strings
+    for (int i = 0; i < pipeline->num_commands; i++) {
+        Command *cmd = &pipeline->commands[i];
+        for (int j = 0; j < cmd->argc; j++) {
+            free(cmd->argv[j]);
+        }
+        if (cmd->input_file != NULL) free(cmd->input_file);
+        if (cmd->output_file != NULL) free(cmd->output_file);
     }
-    
-    // Free the struct 
-    free(cmd);
+    free(pipeline);
 }

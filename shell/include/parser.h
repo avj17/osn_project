@@ -3,21 +3,23 @@
 
 #include <stdbool.h>
 
-// A struct to hold a single parsed command
+// A single command (e.g., "ls -l > out.txt")
 typedef struct {
-    char *argv[100];      // Array of strings (command + arguments)
-    int argc;             // Number of arguments
-    char *input_file;     // NULL if no '<', otherwise the filename
-    char *output_file;    // NULL if no '>', otherwise the filename
-    bool append_output;   // true if '>>', false if '>'
-    bool background;      // true if command ends with '&'
+    char *argv[100];
+    int argc;
+    char *input_file;
+    char *output_file;
+    bool append_output;
 } Command;
 
-// Takes the raw string, chops it up, and returns a populated Command struct
-// Returns NULL if there is a syntax error
-Command* parse_input(char *raw_input);
+// A full pipeline (e.g., "ls -l | wc | grep 5")
+typedef struct {
+    Command commands[20]; // We support up to 20 commands chained together
+    int num_commands;
+    bool background;      // true if it ends with '&'
+} Pipeline;
 
-// Frees the memory allocated for the Command struct
-void free_command(Command *cmd);
+Pipeline* parse_input(char *raw_input);
+void free_pipeline(Pipeline *pipeline);
 
 #endif
