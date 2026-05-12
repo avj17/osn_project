@@ -5,6 +5,11 @@
 #include <dirent.h> // Required for opendir, readdir, and closedir
 #include "builtins.h"
 #include "globals.h"
+#include <signal.h>
+#include <sys/wait.h> // Required for waitpid
+#include <signal.h>   // Required for kill and SIGCONT
+#include "jobs.h"     // Required to read and edit the job_table
+
 
 // Helper function for qsort to sort strings alphabetically
 int compare_strings(const void *a, const void *b) {
@@ -144,5 +149,110 @@ void execute_reveal(Command *cmd) {
     // If we printed space-separated, add a newline at the very end
     if (!flag_l && file_count > 0) {
         printf("\n");
+    }
+}
+
+
+
+// ---------------------------------------------------------
+// REQUIREMENT E.2: ping (Send signals to processes)
+// ---------------------------------------------------------
+void execute_ping(Command *cmd) {
+    // Syntax check: ping <pid> <signal_number>
+    if (cmd->argc != 3) {
+        printf("Usage: ping <pid> <signal_number>\n");
+        return;
+    }
+
+    // Convert the string arguments into integers
+    pid_t target_pid = atoi(cmd->argv[1]);
+    int signal_number = atoi(cmd->argv[2]);
+
+    // Many assignments require you to take the signal modulo 32 to handle 
+    // edge cases where a user types a massive number or negative number.
+    // E.g., if they type ping 1234 9, sig becomes 9.
+    int sig = signal_number % 32;
+
+    // Send the signal!
+    if (kill(target_pid, sig) == 0) {
+        printf("Sent signal %d to process with pid %d\n", sig, target_pid);
+    } else {
+        // If it fails (e.g., process doesn't exist, or no permission)
+        perror("No such process found");
+    }
+}
+
+
+
+
+// ---------------------------------------------------------
+// REQUIREMENT E.4: bg (Resume a stopped background job)
+// ---------------------------------------------------------
+void execute_bg(Command *cmd) {
+    if (cmd->argc != 2) {
+        printf("Usage: bg <pid>\n");
+        return;
+    }
+    pid_t target_pid = atoi(cmd->argv[1]);
+
+    bool found = false;
+    for (int i = 0; i < 100; i++) {
+        if (job_table[i].active && job_table[i].pid == target_pid) {
+            found = true;
+            strcpy(job_table[i].state, "Running"); // Update state
+            break;
+        }
+    }
+    if (!found) {
+        printf("No such process found\n");
+        return;
+    }
+
+    // Wake it up! SIGCONT tells a paused process to continue running.
+    kill(target_pid, SIGCONT);
+}
+
+// ---------------------------------------------------------
+// REQUIREMENT E.4: fg (Bring a background job to the foreground)
+// ---------------------------------------------------------
+void execute_fg(Command *cmd) {
+    if (cmd->argc != 2) {
+        printf("Usage: fg <pid>\n");
+        return;
+    }
+    pid_t target_pid = atoi(cmd->argv[1]);
+
+    char cmd_name[1024] = "";
+    bool found = false;
+
+    // 1. Find the job and REMOVE it from the background table
+    for (int i = 0; i < 100; i++) {
+        if (job_table[i].active && job_table[i].pid == target_pid) {
+            found = true;
+            strcpy(cmd_name, job_table[i].command_name);
+            job_table[i].active = false; // It is no longer in the background!
+            break;
+        }
+    }
+    
+    if (!found) {
+        printf("No such process found\n");
+        return;
+    }
+
+    // 2. Wake it up in case it was stopped by Ctrl-Z
+    kill(target_pid, SIGCONT);
+
+    // 3. Wait for it, exactly like we do in execute.c for normal foreground jobs!
+    // We must ignore keyboard signals in the parent shell while we wait.
+    int status;
+    pid_t wpid = waitpid(target_pid, &status, WUNTRACED);
+
+    // 4. Did the user press Ctrl-Z while it was in the foreground?
+    if (wpid > 0 && WIFSTOPPED(status)) {
+        printf("\n[%d] Stopped\n", wpid);
+        // Put it BACK into the background table!
+        add_job(wpid, cmd_name); 
+        change_job_state(wpid, "Stopped");
     }
 }

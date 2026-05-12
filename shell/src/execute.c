@@ -4,16 +4,21 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <string.h>   
+#include <signal.h>
 #include "execute.h"
 #include "builtins.h" 
 #include "log.h"
-#include "jobs.h" // <--- Required for Job Table
+#include "jobs.h"
 
 void execute_pipeline(Pipeline *pipeline) {
     if (pipeline == NULL || pipeline->num_commands == 0) return;
 
     int num_cmds = pipeline->num_commands;
     int pipes[20][2]; 
+    
+    // --- THE FIX: We track our exact children so we don't steal background jobs! ---
+    pid_t pids[20];       
+    int pid_count = 0;    
 
     // 1. Create all necessary pipes first
     for (int i = 0; i < num_cmds - 1; i++) {
@@ -29,12 +34,11 @@ void execute_pipeline(Pipeline *pipeline) {
     for (int i = 0; i < num_cmds; i++) {
         Command *cmd = &pipeline->commands[i];
 
-        // Safety check to prevent crashing on empty commands
         if (cmd->argc == 0 || cmd->argv[0] == NULL) continue;
 
         // ---------------------------------------------------
         // THE BUILT-IN INTERCEPTOR
-        // We catch built-ins BEFORE they ever reach the fork!
+        // Built-ins skip fork(), so they NEVER get added to the pids[] array!
         // ---------------------------------------------------
         if (strcmp(cmd->argv[0], "hop") == 0) {
             execute_hop(cmd);
@@ -52,7 +56,18 @@ void execute_pipeline(Pipeline *pipeline) {
             print_activities();
             continue;
         }
-
+        else if (strcmp(cmd->argv[0], "ping") == 0) { 
+            execute_ping(cmd);
+            continue;
+        }
+        else if (strcmp(cmd->argv[0], "fg") == 0) { // <--- ADD THIS
+            execute_fg(cmd);
+            continue;
+        }
+        else if (strcmp(cmd->argv[0], "bg") == 0) { // <--- ADD THIS
+            execute_bg(cmd);
+            continue;
+        }
         // If it is NOT a built-in, we proceed with normal execution
         pid_t pid = fork();
         
@@ -61,6 +76,9 @@ void execute_pipeline(Pipeline *pipeline) {
         }
         else if (pid == 0) {
             // --- CHILD PROCESS ---
+            // Unplug the ears so the child CAN be killed or paused!
+            signal(SIGINT, SIG_DFL);
+            signal(SIGTSTP, SIG_DFL);
 
             // A. Rewire the Pipes
             if (i > 0) {
@@ -107,6 +125,8 @@ void execute_pipeline(Pipeline *pipeline) {
         else {
             // --- PARENT PROCESS BLOCK INSIDE THE LOOP ---
             last_pid = pid;
+            pids[pid_count] = pid; // Save the child to our array!
+            pid_count++;           
         }
     }
 
@@ -120,18 +140,20 @@ void execute_pipeline(Pipeline *pipeline) {
     if (pipeline->background) {
         if (last_pid > 0) {
             printf("[1] %d\n", last_pid); 
-            // ---> THIS IS THE MISSING LINE <---
-            // We register the background process into our global Job Table!
             add_job(last_pid, pipeline->commands[0].argv[0]); 
         }
     } else {
-        for (int i = 0; i < num_cmds; i++) {
-            // We only wait if it wasn't a built-in (built-ins don't have children)
-            if (strcmp(pipeline->commands[i].argv[0], "hop") != 0 && 
-                strcmp(pipeline->commands[i].argv[0], "reveal") != 0 &&
-                strcmp(pipeline->commands[i].argv[0], "log") != 0 &&
-                strcmp(pipeline->commands[i].argv[0], "activities") != 0) {
-                wait(NULL);
+        // Foreground Execution
+        // We ONLY loop through the exact PIDs we spawned. 
+        for (int i = 0; i < pid_count; i++) {
+            int status;
+            pid_t wpid = waitpid(pids[i], &status, WUNTRACED);
+            
+            // Did Ctrl-Z pause it?
+            if (wpid > 0 && WIFSTOPPED(status)) {
+                printf("\n[%d] Stopped\n", wpid);
+                add_job(wpid, pipeline->commands[0].argv[0]); 
+                change_job_state(wpid, "Stopped");
             }
         }
     }

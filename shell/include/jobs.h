@@ -26,4 +26,7 @@ void remove_job(pid_t pid);
 // Requirement E.1: Print all active jobs, sorted lexicographically
 void print_activities();
 
+// Update the state of a job (e.g., from Running to Stopped)
+void change_job_state(pid_t pid, const char *new_state); // <--- Make sure this is here!
+
 #endif

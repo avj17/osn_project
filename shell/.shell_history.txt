@@ -1,8 +1,15 @@
-reveal
-sleep 100 &
-sleep 50 &
-sleep 10 &
+ping 11620 9
 activities
+exit
+exit
 sleep 100 &
-sleep 50 &
+activities
+ping 12125 9
+activities
+exit
+sleep 200 &
+activities
+fg 12692
+activities
+bg 12692
 activities

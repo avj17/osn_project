@@ -10,6 +10,7 @@
 #include "globals.h"
 #include "log.h"
 #include "jobs.h"
+#include <signal.h>
 
 // Initialize Global Variables
 char home_dir[PATH_MAX];
@@ -27,6 +28,8 @@ int main() {
 
     // 3. Boot up: Initialize the jobs table
     init_jobs();
+    signal(SIGINT, SIG_IGN);  // Ignore Ctrl-C
+    signal(SIGTSTP, SIG_IGN); // Ignore Ctrl-Z
 
     // 4. The Infinite Loop
     while (1) {
